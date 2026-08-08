@@ -1,19 +1,17 @@
 import { NextResponse } from 'next/server';
-import fs from 'fs/promises';
-import path from 'path';
+import { kv } from '@vercel/kv';
 
-const dbPath = path.join(process.cwd(), 'data', 'trades.json');
+// The key used in Vercel KV to store the trades object
+const KV_KEY = 'cancelculture:trades';
 
 async function getTradesDb() {
   try {
-    const data = await fs.readFile(dbPath, 'utf-8');
-    return JSON.parse(data);
+    const data = await kv.get(KV_KEY);
+    return data || {};
   } catch (error) {
-    if (error.code === 'ENOENT') {
-      await fs.writeFile(dbPath, '{}');
-      return {};
-    }
-    throw error;
+    console.error('KV Get Error:', error);
+    // If KV is not configured, fall back to empty object
+    return {};
   }
 }
 
@@ -44,11 +42,11 @@ export async function POST(request) {
       lastUpdated: new Date().toISOString(),
     };
 
-    await fs.writeFile(dbPath, JSON.stringify(db, null, 2));
+    await kv.set(KV_KEY, db);
 
     return NextResponse.json({ success: true, data: db[playerTag] });
   } catch (error) {
     console.error('Error writing to trades DB:', error);
-    return NextResponse.json({ error: 'Failed to save trades data' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to save trades data. Ensure Vercel KV is connected.' }, { status: 500 });
   }
 }

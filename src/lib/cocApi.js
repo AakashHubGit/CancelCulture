@@ -4,7 +4,7 @@ export async function fetchCoc(endpoint) {
     throw new Error('COC_API_KEY is not defined in environment variables. Please check your .env.local file.');
   }
 
-  const url = `https://api.clashofclans.com/v1${endpoint}`;
+  const url = `https://cocproxy.royaleapi.dev/v1${endpoint}`;
   const res = await fetch(url, {
     headers: {
       Authorization: `Bearer ${apiKey}`,
