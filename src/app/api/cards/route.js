@@ -1,16 +1,25 @@
 import { NextResponse } from 'next/server';
-import { kv } from '@vercel/kv';
+import Redis from 'ioredis';
 
-// The key used in Vercel KV to store the trades object
 const KV_KEY = 'cancelculture:trades';
 
+// Initialize Redis if the URL is provided in the environment variables
+let redis = null;
+if (process.env.REDIS_URL) {
+  redis = new Redis(process.env.REDIS_URL);
+}
+
 async function getTradesDb() {
+  if (!redis) {
+    console.warn('REDIS_URL is not defined. Using empty database in-memory.');
+    return {};
+  }
+  
   try {
-    const data = await kv.get(KV_KEY);
-    return data || {};
+    const data = await redis.get(KV_KEY);
+    return data ? JSON.parse(data) : {};
   } catch (error) {
-    console.error('KV Get Error:', error);
-    // If KV is not configured, fall back to empty object
+    console.error('Redis Get Error:', error);
     return {};
   }
 }
@@ -42,11 +51,13 @@ export async function POST(request) {
       lastUpdated: new Date().toISOString(),
     };
 
-    await kv.set(KV_KEY, db);
+    if (redis) {
+      await redis.set(KV_KEY, JSON.stringify(db));
+    }
 
     return NextResponse.json({ success: true, data: db[playerTag] });
   } catch (error) {
     console.error('Error writing to trades DB:', error);
-    return NextResponse.json({ error: 'Failed to save trades data. Ensure Vercel KV is connected.' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to save trades data.' }, { status: 500 });
   }
 }
