@@ -86,6 +86,8 @@ export default function CardsDashboard({ clanMembers }) {
     }
   };
 
+  const getCardCategory = (id) => cardsData.find(c => c.id === id)?.category || '';
+
   const calculateMatches = () => {
     if (!selectedPlayer) return [];
     
@@ -94,18 +96,33 @@ export default function CardsDashboard({ clanMembers }) {
       if (otherTag === selectedPlayer) return; // skip self
       
       // What I can give them (I have duplicate, they need it)
-      const iCanGive = myDuplicates.filter(id => otherData.needs.includes(id));
+      const iCanGiveAll = myDuplicates.filter(id => otherData.needs.includes(id));
       
       // What they can give me (They have duplicate, I need it)
-      const theyCanGive = otherData.duplicates.filter(id => myNeeds.includes(id));
+      const theyCanGiveAll = otherData.duplicates.filter(id => myNeeds.includes(id));
       
-      if (iCanGive.length > 0 || theyCanGive.length > 0) {
+      const categories = ['Elixir', 'Dark Elixir', 'Super', 'Builder Base'];
+      const categoryMatches = [];
+      let isPerfect = false;
+
+      categories.forEach(cat => {
+        const iCanGive = iCanGiveAll.filter(id => getCardCategory(id) === cat);
+        const theyCanGive = theyCanGiveAll.filter(id => getCardCategory(id) === cat);
+
+        if (iCanGive.length > 0 && theyCanGive.length > 0) {
+          isPerfect = true;
+          categoryMatches.push({ category: cat, iCanGive, theyCanGive, isPerfect: true });
+        } else if (iCanGive.length > 0 || theyCanGive.length > 0) {
+          categoryMatches.push({ category: cat, iCanGive, theyCanGive, isPerfect: false });
+        }
+      });
+      
+      if (categoryMatches.length > 0) {
         matches.push({
           playerTag: otherTag,
           playerName: otherData.name,
-          iCanGive,
-          theyCanGive,
-          isPerfect: iCanGive.length > 0 && theyCanGive.length > 0
+          categoryMatches,
+          isPerfect
         });
       }
     });
@@ -267,31 +284,39 @@ export default function CardsDashboard({ clanMembers }) {
                     }}>
                       <div className="flex justify-between items-center" style={{ marginBottom: '1rem' }}>
                         <h3 style={{ fontSize: '1.2rem', fontWeight: 'bold' }}>{match.playerName}</h3>
-                        {match.isPerfect && <span style={{ background: 'var(--coc-gold)', color: '#000', padding: '0.2rem 0.6rem', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 'bold' }}>Perfect Trade!</span>}
+                        {match.isPerfect && <span style={{ background: 'var(--coc-gold)', color: '#000', padding: '0.2rem 0.6rem', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 'bold' }}>Perfect Swap Available!</span>}
                       </div>
                       
-                      <div className="grid grid-cols-2 gap-4">
-                        <div style={{ background: 'rgba(211, 61, 235, 0.1)', padding: '1rem', borderRadius: '8px' }}>
-                          <h4 className="text-elixir" style={{ fontSize: '0.9rem', marginBottom: '0.5rem', textTransform: 'uppercase' }}>They Can Give You:</h4>
-                          {match.theyCanGive.length > 0 ? (
-                            <ul style={{ listStyle: 'disc', paddingLeft: '1.5rem', color: 'var(--text-secondary)' }}>
-                              {match.theyCanGive.map(id => <li key={id}>{getCardName(id)}</li>)}
-                            </ul>
-                          ) : <p className="text-muted text-sm">Nothing you need.</p>}
+                      {match.categoryMatches.map((catMatch, idx) => (
+                        <div key={idx} style={{ marginBottom: '1.5rem' }}>
+                          <div style={{ fontSize: '0.85rem', textTransform: 'uppercase', color: catMatch.isPerfect ? 'var(--coc-gold)' : 'var(--text-muted)', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+                            {catMatch.category} Cards {catMatch.isPerfect && '★ (Perfect 1:1 Swap)'}
+                          </div>
+                          
+                          <div className="grid grid-cols-2 gap-4">
+                            <div style={{ background: 'rgba(211, 61, 235, 0.1)', padding: '1rem', borderRadius: '8px' }}>
+                              <h4 className="text-elixir" style={{ fontSize: '0.9rem', marginBottom: '0.5rem', textTransform: 'uppercase' }}>They Can Give You:</h4>
+                              {catMatch.theyCanGive.length > 0 ? (
+                                <ul style={{ listStyle: 'disc', paddingLeft: '1.5rem', color: 'var(--text-secondary)' }}>
+                                  {catMatch.theyCanGive.map(id => <li key={id}>{getCardName(id)}</li>)}
+                                </ul>
+                              ) : <p className="text-muted text-sm">Nothing</p>}
+                            </div>
+                            
+                            <div style={{ background: 'rgba(0, 255, 204, 0.1)', padding: '1rem', borderRadius: '8px' }}>
+                              <h4 className="text-dark-elixir" style={{ fontSize: '0.9rem', marginBottom: '0.5rem', textTransform: 'uppercase' }}>You Can Give Them:</h4>
+                              {catMatch.iCanGive.length > 0 ? (
+                                <ul style={{ listStyle: 'disc', paddingLeft: '1.5rem', color: 'var(--text-secondary)' }}>
+                                  {catMatch.iCanGive.map(id => <li key={id}>{getCardName(id)}</li>)}
+                                </ul>
+                              ) : <p className="text-muted text-sm">Nothing</p>}
+                            </div>
+                          </div>
                         </div>
-                        
-                        <div style={{ background: 'rgba(0, 255, 204, 0.1)', padding: '1rem', borderRadius: '8px' }}>
-                          <h4 className="text-dark-elixir" style={{ fontSize: '0.9rem', marginBottom: '0.5rem', textTransform: 'uppercase' }}>You Can Give Them:</h4>
-                          {match.iCanGive.length > 0 ? (
-                            <ul style={{ listStyle: 'disc', paddingLeft: '1.5rem', color: 'var(--text-secondary)' }}>
-                              {match.iCanGive.map(id => <li key={id}>{getCardName(id)}</li>)}
-                            </ul>
-                          ) : <p className="text-muted text-sm">Nothing they need.</p>}
-                        </div>
-                      </div>
+                      ))}
                       
                       {match.isPerfect && (
-                        <p style={{ marginTop: '1rem', textAlign: 'center', color: 'var(--coc-gold)' }}>
+                        <p style={{ marginTop: '0.5rem', textAlign: 'center', color: 'var(--coc-gold)' }}>
                           Coordinate with <strong>{match.playerName}</strong> in Clan Chat to swap these cards!
                         </p>
                       )}
