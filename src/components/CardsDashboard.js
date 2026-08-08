@@ -146,7 +146,7 @@ export default function CardsDashboard({ clanMembers }) {
 
       {selectedPlayer && (
         <>
-          <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', justifyContent: 'center' }}>
+          <div className="flex-wrap" style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', justifyContent: 'center' }}>
             <button 
               className={`btn-primary ${activeTab === 'inventory' ? '' : 'inactive'}`} 
               onClick={() => setActiveTab('inventory')}
@@ -165,10 +165,11 @@ export default function CardsDashboard({ clanMembers }) {
 
           {activeTab === 'inventory' && (
             <div className="glass-panel">
-              <div className="flex justify-between items-center" style={{ marginBottom: '1.5rem' }}>
+              <div className="flex justify-between items-center flex-col-mobile" style={{ marginBottom: '1.5rem' }}>
                 <h2 className="text-gold">Card Inventory</h2>
-                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                <div className="flex flex-col-mobile w-full-mobile" style={{ gap: '1rem', alignItems: 'center' }}>
                   <select 
+                    className="w-full-mobile"
                     value={filterCategory} 
                     onChange={(e) => setFilterCategory(e.target.value)}
                     style={{
@@ -185,7 +186,7 @@ export default function CardsDashboard({ clanMembers }) {
                     <option value="Super">Super</option>
                     <option value="Builder Base">Builder Base</option>
                   </select>
-                  <button className="btn-primary" onClick={handleSave} disabled={isSaving}>
+                  <button className="btn-primary w-full-mobile" onClick={handleSave} disabled={isSaving}>
                     {isSaving ? 'Saving...' : 'Save Inventory'}
                   </button>
                 </div>
