@@ -205,7 +205,24 @@ export default function CardsDashboard({ clanMembers }) {
                       borderLeft: `4px solid ${isNeed ? 'var(--coc-elixir)' : isDup ? 'var(--coc-dark-elixir)' : 'var(--border-glass)'}`
                     }}>
                       <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.2rem' }}>{card.category}</div>
-                      <div style={{ fontWeight: 600, marginBottom: '0.8rem' }}>{card.name}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', marginBottom: '0.8rem' }}>
+                        <div style={{ 
+                          width: '40px', height: '40px', 
+                          borderRadius: '8px', 
+                          background: 'rgba(0,0,0,0.5)',
+                          display: 'flex', justifyContent: 'center', alignItems: 'center',
+                          overflow: 'hidden',
+                          flexShrink: 0
+                        }}>
+                          <img 
+                            src={`/troops/${card.image}`} 
+                            alt={card.name} 
+                            style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                            onError={(e) => { e.target.style.display = 'none'; }} 
+                          />
+                        </div>
+                        <div style={{ fontWeight: 600 }}>{card.name}</div>
+                      </div>
                       <div className="flex gap-2">
                         <button 
                           onClick={() => toggleNeed(card.id)}
