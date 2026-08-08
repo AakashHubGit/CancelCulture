@@ -66,6 +66,47 @@ export default function CardsDashboard({ clanMembers }) {
     setIsSaving(false);
   };
 
+  const handleCompleteTrade = async (otherTag, catMatch) => {
+    if (!confirm('Are you sure you want to mark these cards as traded? This will automatically update both your inventory and their inventory.')) return;
+    
+    // Calculate my new state
+    const newMyNeeds = myNeeds.filter(id => !catMatch.theyCanGive.includes(id));
+    const newMyDuplicates = myDuplicates.filter(id => !catMatch.iCanGive.includes(id));
+    
+    // Calculate their new state
+    const otherData = tradesDb[otherTag];
+    const newTheirNeeds = otherData.needs.filter(id => !catMatch.iCanGive.includes(id));
+    const newTheirDuplicates = otherData.duplicates.filter(id => !catMatch.theyCanGive.includes(id));
+
+    // Update my inventory
+    const memberMe = clanMembers.find(m => m.tag === selectedPlayer);
+    await fetch('/api/cards', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        playerTag: selectedPlayer,
+        playerName: memberMe.name,
+        needs: newMyNeeds,
+        duplicates: newMyDuplicates
+      })
+    });
+
+    // Update their inventory
+    await fetch('/api/cards', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        playerTag: otherTag,
+        playerName: otherData.name,
+        needs: newTheirNeeds,
+        duplicates: newTheirDuplicates
+      })
+    });
+
+    alert('Trade Completed and Inventories Updated!');
+    await fetchTrades(); // Refresh the database
+  };
+
   const toggleNeed = (cardId) => {
     if (myNeeds.includes(cardId)) {
       setMyNeeds(myNeeds.filter(id => id !== cardId));
@@ -289,8 +330,27 @@ export default function CardsDashboard({ clanMembers }) {
                       
                       {match.categoryMatches.map((catMatch, idx) => (
                         <div key={idx} style={{ marginBottom: '1.5rem' }}>
-                          <div style={{ fontSize: '0.85rem', textTransform: 'uppercase', color: catMatch.isPerfect ? 'var(--coc-gold)' : 'var(--text-muted)', marginBottom: '0.5rem', fontWeight: 'bold' }}>
-                            {catMatch.category} Cards {catMatch.isPerfect && '★ (Perfect 1:1 Swap)'}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                            <div style={{ fontSize: '0.85rem', textTransform: 'uppercase', color: catMatch.isPerfect ? 'var(--coc-gold)' : 'var(--text-muted)', fontWeight: 'bold' }}>
+                              {catMatch.category} Cards {catMatch.isPerfect && '★ (Perfect 1:1 Swap)'}
+                            </div>
+                            {catMatch.isPerfect && (
+                              <button 
+                                onClick={() => handleCompleteTrade(match.playerTag, catMatch)}
+                                style={{
+                                  padding: '0.3rem 0.8rem',
+                                  background: 'var(--coc-gold)',
+                                  color: 'black',
+                                  border: 'none',
+                                  borderRadius: '6px',
+                                  fontWeight: 'bold',
+                                  cursor: 'pointer',
+                                  boxShadow: '0 2px 10px rgba(255,193,7,0.3)'
+                                }}
+                              >
+                                Mark Trade Complete
+                              </button>
+                            )}
                           </div>
                           
                           <div className="grid grid-cols-2 gap-4">
