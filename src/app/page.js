@@ -25,7 +25,7 @@ export default async function Home() {
   if (!clan) return <div>Loading...</div>;
 
   return (
-    <div className="animate-fade-in">
+    <div className="animate-stagger">
       {/* Header Section */}
       <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', marginBottom: '2rem' }}>
         <div style={{ position: 'relative', width: '150px', height: '150px', marginBottom: '1rem' }}>

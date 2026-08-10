@@ -55,7 +55,6 @@ export default function CardsDashboard({ clanMembers }) {
         })
       });
       if (res.ok) {
-        // refresh local db state
         await fetchTrades();
         alert('Inventory Saved!');
       }
@@ -69,17 +68,15 @@ export default function CardsDashboard({ clanMembers }) {
   const handleCompleteTrade = async (otherTag, catMatch) => {
     if (!confirm('Are you sure you want to mark these cards as traded? This will automatically update both your inventory and their inventory.')) return;
     
-    // Calculate my new state
     const newMyNeeds = myNeeds.filter(id => !catMatch.theyCanGive.includes(id));
     const newMyDuplicates = myDuplicates.filter(id => !catMatch.iCanGive.includes(id));
     
-    // Calculate their new state
     const otherData = tradesDb[otherTag];
     const newTheirNeeds = otherData.needs.filter(id => !catMatch.iCanGive.includes(id));
     const newTheirDuplicates = otherData.duplicates.filter(id => !catMatch.theyCanGive.includes(id));
 
-    // Update my inventory
     const memberMe = clanMembers.find(m => m.tag === selectedPlayer);
+    
     await fetch('/api/cards', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -91,7 +88,6 @@ export default function CardsDashboard({ clanMembers }) {
       })
     });
 
-    // Update their inventory
     await fetch('/api/cards', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -104,7 +100,7 @@ export default function CardsDashboard({ clanMembers }) {
     });
 
     alert('Trade Completed and Inventories Updated!');
-    await fetchTrades(); // Refresh the database
+    await fetchTrades();
   };
 
   const toggleNeed = (cardId) => {
@@ -112,7 +108,6 @@ export default function CardsDashboard({ clanMembers }) {
       setMyNeeds(myNeeds.filter(id => id !== cardId));
     } else {
       setMyNeeds([...myNeeds, cardId]);
-      // Remove from duplicates if added to needs
       setMyDuplicates(myDuplicates.filter(id => id !== cardId));
     }
   };
@@ -122,39 +117,34 @@ export default function CardsDashboard({ clanMembers }) {
       setMyDuplicates(myDuplicates.filter(id => id !== cardId));
     } else {
       setMyDuplicates([...myDuplicates, cardId]);
-      // Remove from needs if added to duplicates
       setMyNeeds(myNeeds.filter(id => id !== cardId));
     }
   };
 
   const getCardCategory = (id) => cardsData.find(c => c.id === id)?.category || '';
+  const getCardName = (id) => cardsData.find(c => c.id === id)?.name || id;
+  const getCardImage = (id) => cardsData.find(c => c.id === id)?.image || '';
 
   const calculateMatches = () => {
     if (!selectedPlayer) return [];
     
     const matches = [];
     Object.entries(tradesDb).forEach(([otherTag, otherData]) => {
-      if (otherTag === selectedPlayer) return; // skip self
+      if (otherTag === selectedPlayer) return; 
       
-      // What I can give them (I have duplicate, they need it)
       const iCanGiveAll = myDuplicates.filter(id => otherData.needs.includes(id));
-      
-      // What they can give me (They have duplicate, I need it)
       const theyCanGiveAll = otherData.duplicates.filter(id => myNeeds.includes(id));
       
       const categories = ['Elixir', 'Dark Elixir', 'Super', 'Builder Base'];
       const categoryMatches = [];
-      let isPerfect = false;
 
       categories.forEach(cat => {
         const iCanGive = iCanGiveAll.filter(id => getCardCategory(id) === cat);
         const theyCanGive = theyCanGiveAll.filter(id => getCardCategory(id) === cat);
 
+        // ONLY push if it is a PERFECT swap (both sides have cards in this category)
         if (iCanGive.length > 0 && theyCanGive.length > 0) {
-          isPerfect = true;
           categoryMatches.push({ category: cat, iCanGive, theyCanGive, isPerfect: true });
-        } else if (iCanGive.length > 0 || theyCanGive.length > 0) {
-          categoryMatches.push({ category: cat, iCanGive, theyCanGive, isPerfect: false });
         }
       });
       
@@ -163,143 +153,145 @@ export default function CardsDashboard({ clanMembers }) {
           playerTag: otherTag,
           playerName: otherData.name,
           categoryMatches,
-          isPerfect
+          isPerfect: true
         });
       }
     });
     
-    // Sort perfect matches first
-    return matches.sort((a, b) => (b.isPerfect ? 1 : 0) - (a.isPerfect ? 1 : 0));
+    return matches;
   };
 
   const matches = calculateMatches();
-  const getCardName = (id) => cardsData.find(c => c.id === id)?.name || id;
 
   return (
-    <div className="animate-fade-in">
+    <div className="animate-stagger">
       <div className="glass-panel text-center" style={{ marginBottom: '2rem' }}>
-        <h1 className="title-glow" style={{ fontSize: '2.5rem', marginBottom: '1rem' }}>Clash of Cards Trading</h1>
-        <p className="text-muted" style={{ marginBottom: '1.5rem' }}>Select your profile to manage your inventory and find trades!</p>
+        <h1 className="title-glow" style={{ fontSize: '3rem', marginBottom: '1rem', letterSpacing: '-1px' }}>Clash of Cards</h1>
+        <p className="text-muted" style={{ fontSize: '1.1rem', marginBottom: '2rem' }}>Select your profile to manage your inventory and find trades!</p>
         
         <select 
           value={selectedPlayer} 
           onChange={(e) => setSelectedPlayer(e.target.value)}
           style={{
-            padding: '0.8rem 1.5rem',
-            borderRadius: '8px',
-            background: 'rgba(0,0,0,0.3)',
+            padding: '1rem 2rem',
+            borderRadius: '100px',
+            background: 'rgba(255,255,255,0.05)',
             color: 'white',
             border: '1px solid var(--border-glass)',
-            fontSize: '1.1rem',
+            fontSize: '1.2rem',
+            fontWeight: '600',
             width: '100%',
-            maxWidth: '400px'
+            maxWidth: '500px',
+            outline: 'none',
+            boxShadow: 'inset 0 2px 10px rgba(0,0,0,0.5)',
+            cursor: 'pointer'
           }}
         >
-          <option value="">-- Select Your Player --</option>
+          <option value="" style={{ color: '#000' }}>-- Select Your Player --</option>
           {clanMembers.map(m => (
-            <option key={m.tag} value={m.tag}>{m.name} ({m.tag})</option>
+            <option key={m.tag} value={m.tag} style={{ color: '#000' }}>{m.name} ({m.tag})</option>
           ))}
         </select>
       </div>
 
       {selectedPlayer && (
         <>
-          <div className="flex-wrap" style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', justifyContent: 'center' }}>
-            <button 
-              className={`btn-primary ${activeTab === 'inventory' ? '' : 'inactive'}`} 
-              onClick={() => setActiveTab('inventory')}
-              style={{ opacity: activeTab === 'inventory' ? 1 : 0.5 }}
-            >
-              My Inventory
-            </button>
-            <button 
-              className={`btn-primary ${activeTab === 'matches' ? '' : 'inactive'}`} 
-              onClick={() => setActiveTab('matches')}
-              style={{ opacity: activeTab === 'matches' ? 1 : 0.5, background: 'linear-gradient(135deg, var(--coc-dark-elixir), #009977)' }}
-            >
-              Find Trades
-            </button>
+          <div className="flex justify-center" style={{ marginBottom: '2rem' }}>
+            <div className="segmented-control">
+              <div 
+                className="segment-active-bg" 
+                style={{ 
+                  width: '50%', 
+                  left: activeTab === 'inventory' ? '0' : '50%' 
+                }} 
+              />
+              <button 
+                className={`segment-btn ${activeTab === 'inventory' ? 'active' : ''}`} 
+                onClick={() => setActiveTab('inventory')}
+              >
+                My Inventory
+              </button>
+              <button 
+                className={`segment-btn ${activeTab === 'matches' ? 'active' : ''}`} 
+                onClick={() => setActiveTab('matches')}
+              >
+                Find Trades
+              </button>
+            </div>
           </div>
 
           {activeTab === 'inventory' && (
-            <div className="glass-panel">
-              <div className="flex justify-between items-center flex-col-mobile" style={{ marginBottom: '1.5rem' }}>
-                <h2 className="text-gold">Card Inventory</h2>
-                <div className="flex flex-col-mobile w-full-mobile" style={{ gap: '1rem', alignItems: 'center' }}>
+            <div className="glass-panel animate-stagger">
+              <div className="flex justify-between items-center flex-col-mobile" style={{ marginBottom: '2rem' }}>
+                <h2 className="title-glow" style={{ fontSize: '2rem' }}>Your Collection</h2>
+                <div className="flex flex-col-mobile w-full-mobile gap-4">
                   <select 
                     className="w-full-mobile"
                     value={filterCategory} 
                     onChange={(e) => setFilterCategory(e.target.value)}
                     style={{
-                      padding: '0.5rem 1rem',
-                      borderRadius: '8px',
-                      background: 'rgba(0,0,0,0.3)',
+                      padding: '0.8rem 1.5rem',
+                      borderRadius: '12px',
+                      background: 'rgba(0,0,0,0.4)',
                       color: 'white',
                       border: '1px solid var(--border-glass)',
+                      fontWeight: '600'
                     }}
                   >
-                    <option value="All">All Troops</option>
-                    <option value="Elixir">Elixir</option>
-                    <option value="Dark Elixir">Dark Elixir</option>
-                    <option value="Super">Super</option>
-                    <option value="Builder Base">Builder Base</option>
+                    <option value="All" style={{ color: '#000' }}>All Troops</option>
+                    <option value="Elixir" style={{ color: '#000' }}>Elixir</option>
+                    <option value="Dark Elixir" style={{ color: '#000' }}>Dark Elixir</option>
+                    <option value="Super" style={{ color: '#000' }}>Super</option>
+                    <option value="Builder Base" style={{ color: '#000' }}>Builder Base</option>
                   </select>
                   <button className="btn-primary w-full-mobile" onClick={handleSave} disabled={isSaving}>
-                    {isSaving ? 'Saving...' : 'Save Inventory'}
+                    {isSaving ? 'Saving...' : 'Save Collection'}
                   </button>
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1rem' }}>
+              <div className="grid grid-cols-auto-fit gap-4">
                 {cardsData.filter(c => filterCategory === 'All' || c.category === filterCategory).map(card => {
                   const isNeed = myNeeds.includes(card.id);
                   const isDup = myDuplicates.includes(card.id);
                   
+                  let cardClass = '';
+                  if (card.category === 'Elixir') cardClass = 'card-elixir';
+                  if (card.category === 'Dark Elixir') cardClass = 'card-dark';
+                  if (card.category === 'Super') cardClass = 'card-super';
+                  if (card.category === 'Builder Base') cardClass = 'card-builder';
+                  
                   return (
-                    <div key={card.id} style={{ 
-                      background: 'rgba(0,0,0,0.2)', 
-                      padding: '1rem', 
-                      borderRadius: '8px',
-                      borderLeft: `4px solid ${isNeed ? 'var(--coc-elixir)' : isDup ? 'var(--coc-dark-elixir)' : 'var(--border-glass)'}`
-                    }}>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.2rem' }}>{card.category}</div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', marginBottom: '0.8rem' }}>
-                        <div style={{ 
-                          width: '40px', height: '40px', 
-                          borderRadius: '8px', 
-                          background: 'rgba(0,0,0,0.5)',
-                          display: 'flex', justifyContent: 'center', alignItems: 'center',
-                          overflow: 'hidden',
-                          flexShrink: 0
-                        }}>
-                          <img 
-                            src={`/troops/${card.image}`} 
-                            alt={card.name} 
-                            style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
-                            onError={(e) => { e.target.style.display = 'none'; }} 
-                          />
-                        </div>
-                        <div style={{ fontWeight: 600 }}>{card.name}</div>
+                    <div key={card.id} className={`trade-card ${cardClass}`}>
+                      <div className="card-img-wrapper">
+                        <img 
+                          src={`/troops/${card.image}`} 
+                          alt={card.name} 
+                          style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                          onError={(e) => { e.target.style.display = 'none'; }} 
+                        />
                       </div>
-                      <div className="flex gap-2">
+                      
+                      <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text-muted)', marginBottom: '0.2rem' }}>
+                        {card.category}
+                      </div>
+                      <div style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '1.2rem', textAlign: 'center' }}>
+                        {card.name}
+                      </div>
+                      
+                      <div className="w-full-mobile flex gap-2" style={{ width: '100%' }}>
                         <button 
+                          className={`toggle-pill ${isNeed ? 'active-need' : ''}`}
                           onClick={() => toggleNeed(card.id)}
-                          style={{
-                            flex: 1, padding: '0.4rem', borderRadius: '4px', border: 'none', cursor: 'pointer',
-                            background: isNeed ? 'var(--coc-elixir)' : 'rgba(255,255,255,0.1)',
-                            color: isNeed ? 'white' : 'var(--text-secondary)',
-                            fontSize: '0.8rem', fontWeight: 'bold'
-                          }}
-                        >Need</button>
+                        >
+                          {isNeed ? '✓ Needed' : 'Need'}
+                        </button>
                         <button 
+                          className={`toggle-pill ${isDup ? 'active-dup' : ''}`}
                           onClick={() => toggleDuplicate(card.id)}
-                          style={{
-                            flex: 1, padding: '0.4rem', borderRadius: '4px', border: 'none', cursor: 'pointer',
-                            background: isDup ? 'var(--coc-dark-elixir)' : 'rgba(255,255,255,0.1)',
-                            color: isDup ? '#000' : 'var(--text-secondary)',
-                            fontSize: '0.8rem', fontWeight: 'bold'
-                          }}
-                        >Duplicate</button>
+                        >
+                          {isDup ? '✓ Dupe' : 'Dupe'}
+                        </button>
                       </div>
                     </div>
                   )
@@ -309,77 +301,69 @@ export default function CardsDashboard({ clanMembers }) {
           )}
 
           {activeTab === 'matches' && (
-            <div className="glass-panel">
-              <h2 className="text-dark-elixir" style={{ marginBottom: '1.5rem' }}>Trade Matchmaker</h2>
+            <div className="glass-panel animate-stagger">
+              <h2 className="title-glow" style={{ fontSize: '2rem', marginBottom: '2rem' }}>Trade Matchmaker</h2>
               
               {matches.length === 0 ? (
-                <p className="text-muted text-center py-4">No trades available right now. Check back later when others update their inventory!</p>
+                <p className="text-muted text-center py-4" style={{ fontSize: '1.2rem' }}>No trades available right now. Check back later when others update their inventory!</p>
               ) : (
-                <div style={{ display: 'grid', gap: '1rem' }}>
+                <div className="flex flex-col gap-4">
                   {matches.map(match => (
-                    <div key={match.playerTag} style={{ 
-                      background: 'rgba(0,0,0,0.2)', 
-                      padding: '1.5rem', 
-                      borderRadius: '8px',
-                      border: match.isPerfect ? '1px solid var(--coc-gold)' : '1px solid var(--border-glass)'
-                    }}>
-                      <div className="flex justify-between items-center" style={{ marginBottom: '1rem' }}>
-                        <h3 style={{ fontSize: '1.2rem', fontWeight: 'bold' }}>{match.playerName}</h3>
-                        {match.isPerfect && <span style={{ background: 'var(--coc-gold)', color: '#000', padding: '0.2rem 0.6rem', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 'bold' }}>Perfect Swap Available!</span>}
+                    <div key={match.playerTag} className="glass-panel" style={{ padding: '2rem', background: 'rgba(0,0,0,0.4)' }}>
+                      <div className="flex justify-between items-center" style={{ marginBottom: '1.5rem' }}>
+                        <h3 style={{ fontSize: '1.5rem', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <span style={{ color: 'var(--text-muted)', fontSize: '1rem' }}>Trade with</span> {match.playerName}
+                        </h3>
                       </div>
                       
                       {match.categoryMatches.map((catMatch, idx) => (
-                        <div key={idx} style={{ marginBottom: '1.5rem' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                            <div style={{ fontSize: '0.85rem', textTransform: 'uppercase', color: catMatch.isPerfect ? 'var(--coc-gold)' : 'var(--text-muted)', fontWeight: 'bold' }}>
-                              {catMatch.category} Cards {catMatch.isPerfect && '★ (Perfect 1:1 Swap)'}
+                        <div key={idx} style={{ marginBottom: '2rem' }}>
+                          <div className="flex justify-between items-center flex-col-mobile" style={{ marginBottom: '1rem' }}>
+                            <div style={{ fontSize: '1rem', textTransform: 'uppercase', color: 'var(--coc-gold)', fontWeight: '800', letterSpacing: '1px' }}>
+                              {catMatch.category} Trade ★
                             </div>
-                            {catMatch.isPerfect && (
-                              <button 
-                                onClick={() => handleCompleteTrade(match.playerTag, catMatch)}
-                                style={{
-                                  padding: '0.3rem 0.8rem',
-                                  background: 'var(--coc-gold)',
-                                  color: 'black',
-                                  border: 'none',
-                                  borderRadius: '6px',
-                                  fontWeight: 'bold',
-                                  cursor: 'pointer',
-                                  boxShadow: '0 2px 10px rgba(255,193,7,0.3)'
-                                }}
-                              >
-                                Mark Trade Complete
-                              </button>
-                            )}
+                            <button 
+                              className="btn-primary"
+                              onClick={() => handleCompleteTrade(match.playerTag, catMatch)}
+                              style={{ padding: '0.5rem 1rem', fontSize: '0.9rem' }}
+                            >
+                              Mark Trade Complete ✓
+                            </button>
                           </div>
                           
-                          <div className="grid grid-cols-2 gap-4">
-                            <div style={{ background: 'rgba(211, 61, 235, 0.1)', padding: '1rem', borderRadius: '8px' }}>
-                              <h4 className="text-elixir" style={{ fontSize: '0.9rem', marginBottom: '0.5rem', textTransform: 'uppercase' }}>They Can Give You:</h4>
-                              {catMatch.theyCanGive.length > 0 ? (
-                                <ul style={{ listStyle: 'disc', paddingLeft: '1.5rem', color: 'var(--text-secondary)' }}>
-                                  {catMatch.theyCanGive.map(id => <li key={id}>{getCardName(id)}</li>)}
-                                </ul>
-                              ) : <p className="text-muted text-sm">Nothing</p>}
+                          <div className="vs-screen">
+                            <div className="vs-side vs-left">
+                              <h4 className="text-dark-elixir" style={{ fontSize: '0.9rem', marginBottom: '1.5rem', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'center' }}>You Give Them</h4>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', justifyContent: 'center' }}>
+                                {catMatch.iCanGive.map(id => (
+                                  <div key={id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', width: '70px' }}>
+                                    <div style={{ width: '60px', height: '60px', borderRadius: '12px', background: 'rgba(0,0,0,0.6)', overflow: 'hidden', boxShadow: 'inset 0 2px 10px rgba(0,0,0,0.8), 0 4px 10px rgba(0,0,0,0.5)', border: '1px solid var(--border-glass)' }}>
+                                      <img src={`/troops/${getCardImage(id)}`} alt={getCardName(id)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => { e.target.style.display = 'none'; }} />
+                                    </div>
+                                    <span style={{ fontSize: '0.75rem', fontWeight: '600', textAlign: 'center', color: 'var(--text-primary)', lineHeight: '1.2' }}>{getCardName(id)}</span>
+                                  </div>
+                                ))}
+                              </div>
                             </div>
                             
-                            <div style={{ background: 'rgba(0, 255, 204, 0.1)', padding: '1rem', borderRadius: '8px' }}>
-                              <h4 className="text-dark-elixir" style={{ fontSize: '0.9rem', marginBottom: '0.5rem', textTransform: 'uppercase' }}>You Can Give Them:</h4>
-                              {catMatch.iCanGive.length > 0 ? (
-                                <ul style={{ listStyle: 'disc', paddingLeft: '1.5rem', color: 'var(--text-secondary)' }}>
-                                  {catMatch.iCanGive.map(id => <li key={id}>{getCardName(id)}</li>)}
-                                </ul>
-                              ) : <p className="text-muted text-sm">Nothing</p>}
+                            <div className="vs-center"></div>
+                            
+                            <div className="vs-side vs-right">
+                              <h4 className="text-elixir" style={{ fontSize: '0.9rem', marginBottom: '1.5rem', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'center' }}>They Give You</h4>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', justifyContent: 'center' }}>
+                                {catMatch.theyCanGive.map(id => (
+                                  <div key={id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', width: '70px' }}>
+                                    <div style={{ width: '60px', height: '60px', borderRadius: '12px', background: 'rgba(0,0,0,0.6)', overflow: 'hidden', boxShadow: 'inset 0 2px 10px rgba(0,0,0,0.8), 0 4px 10px rgba(0,0,0,0.5)', border: '1px solid var(--border-glass)' }}>
+                                      <img src={`/troops/${getCardImage(id)}`} alt={getCardName(id)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => { e.target.style.display = 'none'; }} />
+                                    </div>
+                                    <span style={{ fontSize: '0.75rem', fontWeight: '600', textAlign: 'center', color: 'var(--text-primary)', lineHeight: '1.2' }}>{getCardName(id)}</span>
+                                  </div>
+                                ))}
+                              </div>
                             </div>
                           </div>
                         </div>
                       ))}
-                      
-                      {match.isPerfect && (
-                        <p style={{ marginTop: '0.5rem', textAlign: 'center', color: 'var(--coc-gold)' }}>
-                          Coordinate with <strong>{match.playerName}</strong> in Clan Chat to swap these cards!
-                        </p>
-                      )}
                     </div>
                   ))}
                 </div>

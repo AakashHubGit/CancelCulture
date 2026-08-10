@@ -60,7 +60,7 @@ export default async function WarPage() {
   }
 
   return (
-    <div className="animate-fade-in">
+    <div className="animate-stagger">
       <h1 className="title-glow" style={{ fontSize: '2.5rem', marginBottom: '2rem', textAlign: 'center' }}>War Status</h1>
       
       {/* Current War Section */}

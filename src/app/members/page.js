@@ -40,7 +40,7 @@ export default async function MembersPage() {
               <th style={{ padding: '1rem', color: 'var(--coc-elixir)' }}>Received</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="animate-stagger">
             {members.map((member) => (
               <tr key={member.tag} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', transition: 'var(--transition)' }} className="member-row">
                 <td style={{ padding: '1rem', fontWeight: 'bold' }}>{member.clanRank}</td>
