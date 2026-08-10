@@ -36,13 +36,35 @@ export async function GET() {
 
 export async function POST(request) {
   try {
-    const { playerTag, playerName, needs, duplicates } = await request.json();
+    const body = await request.json();
+    const db = await getTradesDb();
+
+    // Handle array for bulk multi-way trade updates
+    if (Array.isArray(body)) {
+      body.forEach(player => {
+        const { playerTag, playerName, needs, duplicates } = player;
+        if (playerTag && playerName) {
+          db[playerTag] = {
+            name: playerName,
+            needs: needs || [],
+            duplicates: duplicates || [],
+            lastUpdated: new Date().toISOString(),
+          };
+        }
+      });
+      
+      if (redis) {
+        await redis.set(KV_KEY, JSON.stringify(db));
+      }
+      return NextResponse.json({ success: true, bulk: true });
+    }
+
+    // Handle single update
+    const { playerTag, playerName, needs, duplicates } = body;
 
     if (!playerTag || !playerName) {
       return NextResponse.json({ error: 'Missing playerTag or playerName' }, { status: 400 });
     }
-
-    const db = await getTradesDb();
     
     db[playerTag] = {
       name: playerName,

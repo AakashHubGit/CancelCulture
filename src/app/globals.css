@@ -366,3 +366,22 @@ main.container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
   .vs-center { border: none; border-top: 1px solid var(--border-glass); border-bottom: 1px solid var(--border-glass); padding: 0.5rem; }
   .vs-center::after { content: '⇅'; }
 }
+
+@media (max-width: 480px) {
+  .grid-cols-auto-fit { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  .trade-card { padding: 0.8rem; }
+  .card-img-wrapper { width: 60px; height: 60px; margin-bottom: 0.5rem; }
+  .segment-btn { padding: 0.6rem 1rem; font-size: 0.85rem; }
+}
+
+.trade-layout-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .trade-layout-grid {
+    grid-template-columns: 1fr;
+  }
+}

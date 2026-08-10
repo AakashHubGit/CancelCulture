@@ -1,7 +1,13 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import cardsData from '@/data/cards.json';
+
+// O(1) lookup map for cards to prevent thousands of Array.find() calls during render
+const cardsDataMap = {};
+cardsData.forEach(c => {
+  cardsDataMap[c.id] = c;
+});
 
 export default function CardsDashboard({ clanMembers }) {
   const [selectedPlayer, setSelectedPlayer] = useState('');
@@ -103,32 +109,72 @@ export default function CardsDashboard({ clanMembers }) {
     await fetchTrades();
   };
 
-  const toggleNeed = (cardId) => {
-    if (myNeeds.includes(cardId)) {
-      setMyNeeds(myNeeds.filter(id => id !== cardId));
-    } else {
-      setMyNeeds([...myNeeds, cardId]);
-      setMyDuplicates(myDuplicates.filter(id => id !== cardId));
+  const handleCompleteMultiTrade = async (multiTrade) => {
+    if (!confirm('Execute 3-Way Trade? This will instantly update the inventory for you and both other players.')) return;
+    
+    // Me: Gives cardZ, Receives cardX
+    const newMyNeeds = myNeeds.filter(id => id !== multiTrade.me.receives);
+    const newMyDuplicates = myDuplicates.filter(id => id !== multiTrade.me.gives);
+    
+    // Player B: Gives cardY, Receives cardZ
+    const dataB = tradesDb[multiTrade.playerB.tag];
+    const newNeedsB = dataB.needs.filter(id => id !== multiTrade.playerB.receives);
+    const newDupesB = dataB.duplicates.filter(id => id !== multiTrade.playerB.gives);
+    
+    // Player C: Gives cardX, Receives cardY
+    const dataC = tradesDb[multiTrade.playerC.tag];
+    const newNeedsC = dataC.needs.filter(id => id !== multiTrade.playerC.receives);
+    const newDupesC = dataC.duplicates.filter(id => id !== multiTrade.playerC.gives);
+
+    const memberMe = clanMembers.find(m => m.tag === selectedPlayer);
+    
+    // Atomic Bulk Update Array
+    const bulkPayload = [
+      { playerTag: selectedPlayer, playerName: memberMe.name, needs: newMyNeeds, duplicates: newMyDuplicates },
+      { playerTag: multiTrade.playerB.tag, playerName: multiTrade.playerB.name, needs: newNeedsB, duplicates: newDupesB },
+      { playerTag: multiTrade.playerC.tag, playerName: multiTrade.playerC.name, needs: newNeedsC, duplicates: newDupesC }
+    ];
+
+    try {
+      const res = await fetch('/api/cards', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(bulkPayload)
+      });
+
+      if (res.ok) {
+        alert('Multi-Way Trade Completed Successfully!');
+        await fetchTrades();
+      } else {
+        alert('Failed to process multi-way trade.');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Error saving multi-way trade.');
     }
   };
 
-  const toggleDuplicate = (cardId) => {
-    if (myDuplicates.includes(cardId)) {
-      setMyDuplicates(myDuplicates.filter(id => id !== cardId));
-    } else {
-      setMyDuplicates([...myDuplicates, cardId]);
-      setMyNeeds(myNeeds.filter(id => id !== cardId));
-    }
-  };
+  const toggleNeed = useCallback((cardId) => {
+    setMyNeeds(prev => prev.includes(cardId) ? prev.filter(id => id !== cardId) : [...prev, cardId]);
+    setMyDuplicates(prev => prev.includes(cardId) ? prev.filter(id => id !== cardId) : prev);
+  }, []);
 
-  const getCardCategory = (id) => cardsData.find(c => c.id === id)?.category || '';
-  const getCardName = (id) => cardsData.find(c => c.id === id)?.name || id;
-  const getCardImage = (id) => cardsData.find(c => c.id === id)?.image || '';
+  const toggleDuplicate = useCallback((cardId) => {
+    setMyDuplicates(prev => prev.includes(cardId) ? prev.filter(id => id !== cardId) : [...prev, cardId]);
+    setMyNeeds(prev => prev.includes(cardId) ? prev.filter(id => id !== cardId) : prev);
+  }, []);
 
-  const calculateMatches = () => {
+  // O(1) Lookups instead of O(N)
+  const getCardCategory = (id) => cardsDataMap[id]?.category || '';
+  const getCardName = (id) => cardsDataMap[id]?.name || id;
+  const getCardImage = (id) => cardsDataMap[id]?.image || '';
+
+  // Memoize heavy calculation to avoid lag on re-renders
+  const matches = useMemo(() => {
     if (!selectedPlayer) return [];
     
-    const matches = [];
+    // Direct Matches
+    const directMatches = [];
     Object.entries(tradesDb).forEach(([otherTag, otherData]) => {
       if (otherTag === selectedPlayer) return; 
       
@@ -142,14 +188,13 @@ export default function CardsDashboard({ clanMembers }) {
         const iCanGive = iCanGiveAll.filter(id => getCardCategory(id) === cat);
         const theyCanGive = theyCanGiveAll.filter(id => getCardCategory(id) === cat);
 
-        // ONLY push if it is a PERFECT swap (both sides have cards in this category)
         if (iCanGive.length > 0 && theyCanGive.length > 0) {
           categoryMatches.push({ category: cat, iCanGive, theyCanGive, isPerfect: true });
         }
       });
       
       if (categoryMatches.length > 0) {
-        matches.push({
+        directMatches.push({
           playerTag: otherTag,
           playerName: otherData.name,
           categoryMatches,
@@ -157,11 +202,63 @@ export default function CardsDashboard({ clanMembers }) {
         });
       }
     });
-    
-    return matches;
-  };
 
-  const matches = calculateMatches();
+    // 3-Way Multi Matches
+    const multiMatches = [];
+    const categories = ['Elixir', 'Dark Elixir', 'Super', 'Builder Base'];
+
+    categories.forEach(cat => {
+      const myNeedsInCat = myNeeds.filter(id => getCardCategory(id) === cat);
+      const myDupesInCat = myDuplicates.filter(id => getCardCategory(id) === cat);
+
+      myNeedsInCat.forEach(cardX => {
+        // Who has Card X as a duplicate? -> Potential Player C
+        Object.entries(tradesDb).forEach(([playerCTag, playerCData]) => {
+          if (playerCTag === selectedPlayer) return;
+          if (!playerCData.duplicates.includes(cardX)) return;
+
+          const playerCNeedsInCat = playerCData.needs.filter(id => getCardCategory(id) === cat);
+          
+          playerCNeedsInCat.forEach(cardY => {
+            // Who has Card Y as a duplicate? -> Potential Player B
+            Object.entries(tradesDb).forEach(([playerBTag, playerBData]) => {
+              if (playerBTag === selectedPlayer || playerBTag === playerCTag) return;
+              if (!playerBData.duplicates.includes(cardY)) return;
+
+              const playerBNeedsInCat = playerBData.needs.filter(id => getCardCategory(id) === cat);
+              
+              playerBNeedsInCat.forEach(cardZ => {
+                // Do I have Card Z as a duplicate?
+                if (myDupesInCat.includes(cardZ)) {
+                  // Wait, check if a direct match already handles this Z and X swap. 
+                  // If playerBTag happens to need Z and gives X, that's a 2-way direct match, no need for 3-way.
+                  // But B needs Z and gives Y. C needs Y and gives X. This is a true 3-way.
+                  
+                  const cycleKey = `${cat}-${playerBTag}-${playerCTag}-${cardZ}-${cardY}-${cardX}`;
+                  if (!multiMatches.some(m => m.key === cycleKey)) {
+                    multiMatches.push({
+                      key: cycleKey,
+                      category: cat,
+                      playerB: { tag: playerBTag, name: playerBData.name, receives: cardZ, gives: cardY },
+                      playerC: { tag: playerCTag, name: playerCData.name, receives: cardY, gives: cardX },
+                      me: { receives: cardX, gives: cardZ }
+                    });
+                  }
+                }
+              });
+            });
+          });
+        });
+      });
+    });
+    
+    return { directMatches, multiMatches };
+  }, [selectedPlayer, tradesDb, myNeeds, myDuplicates]);
+
+  // Memoize filtered inventory to avoid lag when toggling pills
+  const filteredCards = useMemo(() => {
+    return cardsData.filter(c => filterCategory === 'All' || c.category === filterCategory);
+  }, [filterCategory]);
 
   return (
     <div className="animate-stagger">
@@ -251,7 +348,7 @@ export default function CardsDashboard({ clanMembers }) {
               </div>
 
               <div className="grid grid-cols-auto-fit gap-4">
-                {cardsData.filter(c => filterCategory === 'All' || c.category === filterCategory).map(card => {
+                {filteredCards.map(card => {
                   const isNeed = myNeeds.includes(card.id);
                   const isDup = myDuplicates.includes(card.id);
                   
@@ -304,68 +401,179 @@ export default function CardsDashboard({ clanMembers }) {
             <div className="glass-panel animate-stagger">
               <h2 className="title-glow" style={{ fontSize: '2rem', marginBottom: '2rem' }}>Trade Matchmaker</h2>
               
-              {matches.length === 0 ? (
+              {matches.directMatches.length === 0 && matches.multiMatches.length === 0 ? (
                 <p className="text-muted text-center py-4" style={{ fontSize: '1.2rem' }}>No trades available right now. Check back later when others update their inventory!</p>
               ) : (
-                <div className="flex flex-col gap-4">
-                  {matches.map(match => (
-                    <div key={match.playerTag} className="glass-panel" style={{ padding: '2rem', background: 'rgba(0,0,0,0.4)' }}>
-                      <div className="flex justify-between items-center" style={{ marginBottom: '1.5rem' }}>
-                        <h3 style={{ fontSize: '1.5rem', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                          <span style={{ color: 'var(--text-muted)', fontSize: '1rem' }}>Trade with</span> {match.playerName}
-                        </h3>
+                <div className="trade-layout-grid">
+                  
+                  {/* DIRECT MATCHES */}
+                  {matches.directMatches.length > 0 && (
+                    <div>
+                      <h3 className="text-elixir" style={{ fontSize: '1.5rem', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.5rem' }}>Direct 1:1 Swaps</h3>
+                      <div className="flex flex-col gap-4">
+                        {matches.directMatches.map(match => (
+                          <div key={match.playerTag} className="glass-panel" style={{ padding: '2rem', background: 'rgba(0,0,0,0.4)' }}>
+                            <div className="flex justify-between items-center" style={{ marginBottom: '1.5rem' }}>
+                              <h3 style={{ fontSize: '1.5rem', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <span style={{ color: 'var(--text-muted)', fontSize: '1rem' }}>Trade with</span> {match.playerName}
+                              </h3>
+                            </div>
+                            
+                            {match.categoryMatches.map((catMatch, idx) => (
+                              <div key={idx} style={{ marginBottom: '2rem' }}>
+                                <div className="flex justify-between items-center flex-col-mobile" style={{ marginBottom: '1rem' }}>
+                                  <div style={{ fontSize: '1rem', textTransform: 'uppercase', color: 'var(--coc-gold)', fontWeight: '800', letterSpacing: '1px' }}>
+                                    {catMatch.category} Trade ★
+                                  </div>
+                                  <button 
+                                    className="btn-primary"
+                                    onClick={() => handleCompleteTrade(match.playerTag, catMatch)}
+                                    style={{ padding: '0.5rem 1rem', fontSize: '0.9rem' }}
+                                  >
+                                    Mark Trade Complete ✓
+                                  </button>
+                                </div>
+                                
+                                <div className="vs-screen">
+                                  <div className="vs-side vs-left">
+                                    <h4 className="text-dark-elixir" style={{ fontSize: '0.9rem', marginBottom: '1.5rem', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'center' }}>You Give Them</h4>
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', justifyContent: 'center' }}>
+                                      {catMatch.iCanGive.map(id => (
+                                        <div key={id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', width: '70px' }}>
+                                          <div style={{ width: '60px', height: '60px', borderRadius: '12px', background: 'rgba(0,0,0,0.6)', overflow: 'hidden', boxShadow: 'inset 0 2px 10px rgba(0,0,0,0.8), 0 4px 10px rgba(0,0,0,0.5)', border: '1px solid var(--border-glass)' }}>
+                                            <img src={`/troops/${getCardImage(id)}`} alt={getCardName(id)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => { e.target.style.display = 'none'; }} />
+                                          </div>
+                                          <span style={{ fontSize: '0.75rem', fontWeight: '600', textAlign: 'center', color: 'var(--text-primary)', lineHeight: '1.2' }}>{getCardName(id)}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                  
+                                  <div className="vs-center"></div>
+                                  
+                                  <div className="vs-side vs-right">
+                                    <h4 className="text-elixir" style={{ fontSize: '0.9rem', marginBottom: '1.5rem', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'center' }}>They Give You</h4>
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', justifyContent: 'center' }}>
+                                      {catMatch.theyCanGive.map(id => (
+                                        <div key={id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', width: '70px' }}>
+                                          <div style={{ width: '60px', height: '60px', borderRadius: '12px', background: 'rgba(0,0,0,0.6)', overflow: 'hidden', boxShadow: 'inset 0 2px 10px rgba(0,0,0,0.8), 0 4px 10px rgba(0,0,0,0.5)', border: '1px solid var(--border-glass)' }}>
+                                            <img src={`/troops/${getCardImage(id)}`} alt={getCardName(id)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => { e.target.style.display = 'none'; }} />
+                                          </div>
+                                          <span style={{ fontSize: '0.75rem', fontWeight: '600', textAlign: 'center', color: 'var(--text-primary)', lineHeight: '1.2' }}>{getCardName(id)}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ))}
                       </div>
-                      
-                      {match.categoryMatches.map((catMatch, idx) => (
-                        <div key={idx} style={{ marginBottom: '2rem' }}>
-                          <div className="flex justify-between items-center flex-col-mobile" style={{ marginBottom: '1rem' }}>
-                            <div style={{ fontSize: '1rem', textTransform: 'uppercase', color: 'var(--coc-gold)', fontWeight: '800', letterSpacing: '1px' }}>
-                              {catMatch.category} Trade ★
-                            </div>
-                            <button 
-                              className="btn-primary"
-                              onClick={() => handleCompleteTrade(match.playerTag, catMatch)}
-                              style={{ padding: '0.5rem 1rem', fontSize: '0.9rem' }}
-                            >
-                              Mark Trade Complete ✓
-                            </button>
-                          </div>
-                          
-                          <div className="vs-screen">
-                            <div className="vs-side vs-left">
-                              <h4 className="text-dark-elixir" style={{ fontSize: '0.9rem', marginBottom: '1.5rem', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'center' }}>You Give Them</h4>
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', justifyContent: 'center' }}>
-                                {catMatch.iCanGive.map(id => (
-                                  <div key={id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', width: '70px' }}>
-                                    <div style={{ width: '60px', height: '60px', borderRadius: '12px', background: 'rgba(0,0,0,0.6)', overflow: 'hidden', boxShadow: 'inset 0 2px 10px rgba(0,0,0,0.8), 0 4px 10px rgba(0,0,0,0.5)', border: '1px solid var(--border-glass)' }}>
-                                      <img src={`/troops/${getCardImage(id)}`} alt={getCardName(id)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => { e.target.style.display = 'none'; }} />
-                                    </div>
-                                    <span style={{ fontSize: '0.75rem', fontWeight: '600', textAlign: 'center', color: 'var(--text-primary)', lineHeight: '1.2' }}>{getCardName(id)}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                            
-                            <div className="vs-center"></div>
-                            
-                            <div className="vs-side vs-right">
-                              <h4 className="text-elixir" style={{ fontSize: '0.9rem', marginBottom: '1.5rem', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'center' }}>They Give You</h4>
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', justifyContent: 'center' }}>
-                                {catMatch.theyCanGive.map(id => (
-                                  <div key={id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', width: '70px' }}>
-                                    <div style={{ width: '60px', height: '60px', borderRadius: '12px', background: 'rgba(0,0,0,0.6)', overflow: 'hidden', boxShadow: 'inset 0 2px 10px rgba(0,0,0,0.8), 0 4px 10px rgba(0,0,0,0.5)', border: '1px solid var(--border-glass)' }}>
-                                      <img src={`/troops/${getCardImage(id)}`} alt={getCardName(id)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => { e.target.style.display = 'none'; }} />
-                                    </div>
-                                    <span style={{ fontSize: '0.75rem', fontWeight: '600', textAlign: 'center', color: 'var(--text-primary)', lineHeight: '1.2' }}>{getCardName(id)}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
                     </div>
-                  ))}
+                  )}
+
+                  {/* MULTI-WAY MATCHES */}
+                  {matches.multiMatches.length > 0 && (
+                    <div>
+                      <h3 className="text-gold" style={{ fontSize: '1.5rem', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.5rem' }}>3-Way Cycles</h3>
+                      <div className="flex flex-col gap-4">
+                        {matches.multiMatches.map((multiTrade, idx) => (
+                          <div key={idx} className="glass-panel" style={{ padding: '1.5rem', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,193,7,0.3)' }}>
+                            <div className="flex justify-between items-center flex-col-mobile" style={{ marginBottom: '1.5rem' }}>
+                              <div style={{ fontSize: '1rem', textTransform: 'uppercase', color: 'var(--coc-gold)', fontWeight: '800', letterSpacing: '1px' }}>
+                                {multiTrade.category} 3-Way ♻️
+                              </div>
+                              <button 
+                                className="btn-primary"
+                                onClick={() => handleCompleteMultiTrade(multiTrade)}
+                                style={{ padding: '0.5rem 1rem', fontSize: '0.9rem', background: 'linear-gradient(135deg, #ff8c00, #ff5722)' }}
+                              >
+                                Execute Trade ✓
+                              </button>
+                            </div>
+                            
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                              
+                              {/* YOU */}
+                              <div className="glass-panel" style={{ background: 'rgba(0,0,0,0.6)', padding: '1rem', borderLeft: '4px solid var(--coc-dark-elixir)' }}>
+                                <div style={{ fontSize: '1.1rem', fontWeight: 'bold', marginBottom: '1rem', textAlign: 'center' }}>You</div>
+                                <div style={{ display: 'flex', justifyContent: 'space-around', alignItems: 'flex-start' }}>
+                                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '45%' }}>
+                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', textAlign: 'center', minHeight: '30px' }}>Give to {multiTrade.playerB.name}</span>
+                                    <div style={{ width: '50px', height: '50px', borderRadius: '8px', overflow: 'hidden', margin: '0.5rem 0', border: '1px solid var(--border-glass)' }}>
+                                      <img src={`/troops/${getCardImage(multiTrade.me.gives)}`} alt="give" style={{width:'100%', height:'100%', objectFit:'cover'}} onError={(e) => { e.target.style.display = 'none'; }} />
+                                    </div>
+                                    <span style={{ fontSize: '0.8rem', fontWeight: 'bold', textAlign: 'center' }}>{getCardName(multiTrade.me.gives)}</span>
+                                  </div>
+                                  
+                                  <div style={{ color: 'var(--text-muted)', fontSize: '1.5rem', alignSelf: 'center' }}>⇄</div>
+                                  
+                                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '45%' }}>
+                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', textAlign: 'center', minHeight: '30px' }}>Receive from {multiTrade.playerC.name}</span>
+                                    <div style={{ width: '50px', height: '50px', borderRadius: '8px', overflow: 'hidden', margin: '0.5rem 0', border: '1px solid var(--border-glass)' }}>
+                                      <img src={`/troops/${getCardImage(multiTrade.me.receives)}`} alt="receive" style={{width:'100%', height:'100%', objectFit:'cover'}} onError={(e) => { e.target.style.display = 'none'; }} />
+                                    </div>
+                                    <span style={{ fontSize: '0.8rem', fontWeight: 'bold', textAlign: 'center' }}>{getCardName(multiTrade.me.receives)}</span>
+                                  </div>
+                                </div>
+                              </div>
+                              
+                              {/* PLAYER B */}
+                              <div className="glass-panel" style={{ background: 'rgba(0,0,0,0.6)', padding: '1rem', borderLeft: '4px solid var(--coc-builder)' }}>
+                                <div style={{ fontSize: '1.1rem', fontWeight: 'bold', marginBottom: '1rem', textAlign: 'center' }}>{multiTrade.playerB.name}</div>
+                                <div style={{ display: 'flex', justifyContent: 'space-around', alignItems: 'flex-start' }}>
+                                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '45%' }}>
+                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', textAlign: 'center', minHeight: '30px' }}>Give to {multiTrade.playerC.name}</span>
+                                    <div style={{ width: '50px', height: '50px', borderRadius: '8px', overflow: 'hidden', margin: '0.5rem 0', border: '1px solid var(--border-glass)' }}>
+                                      <img src={`/troops/${getCardImage(multiTrade.playerB.gives)}`} alt="give" style={{width:'100%', height:'100%', objectFit:'cover'}} onError={(e) => { e.target.style.display = 'none'; }} />
+                                    </div>
+                                    <span style={{ fontSize: '0.8rem', fontWeight: 'bold', textAlign: 'center' }}>{getCardName(multiTrade.playerB.gives)}</span>
+                                  </div>
+                                  
+                                  <div style={{ color: 'var(--text-muted)', fontSize: '1.5rem', alignSelf: 'center' }}>⇄</div>
+                                  
+                                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '45%' }}>
+                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', textAlign: 'center', minHeight: '30px' }}>Receive from You</span>
+                                    <div style={{ width: '50px', height: '50px', borderRadius: '8px', overflow: 'hidden', margin: '0.5rem 0', border: '1px solid var(--border-glass)' }}>
+                                      <img src={`/troops/${getCardImage(multiTrade.playerB.receives)}`} alt="receive" style={{width:'100%', height:'100%', objectFit:'cover'}} onError={(e) => { e.target.style.display = 'none'; }} />
+                                    </div>
+                                    <span style={{ fontSize: '0.8rem', fontWeight: 'bold', textAlign: 'center' }}>{getCardName(multiTrade.playerB.receives)}</span>
+                                  </div>
+                                </div>
+                              </div>
+                              
+                              {/* PLAYER C */}
+                              <div className="glass-panel" style={{ background: 'rgba(0,0,0,0.6)', padding: '1rem', borderLeft: '4px solid var(--coc-elixir)' }}>
+                                <div style={{ fontSize: '1.1rem', fontWeight: 'bold', marginBottom: '1rem', textAlign: 'center' }}>{multiTrade.playerC.name}</div>
+                                <div style={{ display: 'flex', justifyContent: 'space-around', alignItems: 'flex-start' }}>
+                                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '45%' }}>
+                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', textAlign: 'center', minHeight: '30px' }}>Give to You</span>
+                                    <div style={{ width: '50px', height: '50px', borderRadius: '8px', overflow: 'hidden', margin: '0.5rem 0', border: '1px solid var(--border-glass)' }}>
+                                      <img src={`/troops/${getCardImage(multiTrade.playerC.gives)}`} alt="give" style={{width:'100%', height:'100%', objectFit:'cover'}} onError={(e) => { e.target.style.display = 'none'; }} />
+                                    </div>
+                                    <span style={{ fontSize: '0.8rem', fontWeight: 'bold', textAlign: 'center' }}>{getCardName(multiTrade.playerC.gives)}</span>
+                                  </div>
+                                  
+                                  <div style={{ color: 'var(--text-muted)', fontSize: '1.5rem', alignSelf: 'center' }}>⇄</div>
+                                  
+                                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '45%' }}>
+                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', textAlign: 'center', minHeight: '30px' }}>Receive from {multiTrade.playerB.name}</span>
+                                    <div style={{ width: '50px', height: '50px', borderRadius: '8px', overflow: 'hidden', margin: '0.5rem 0', border: '1px solid var(--border-glass)' }}>
+                                      <img src={`/troops/${getCardImage(multiTrade.playerC.receives)}`} alt="receive" style={{width:'100%', height:'100%', objectFit:'cover'}} onError={(e) => { e.target.style.display = 'none'; }} />
+                                    </div>
+                                    <span style={{ fontSize: '0.8rem', fontWeight: 'bold', textAlign: 'center' }}>{getCardName(multiTrade.playerC.receives)}</span>
+                                  </div>
+                                </div>
+                              </div>
+                              
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                 </div>
               )}
             </div>
