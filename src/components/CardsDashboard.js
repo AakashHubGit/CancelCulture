@@ -301,10 +301,7 @@ export default function CardsDashboard({ clanMembers = [] }) {
     );
   }, []);
 
-  // O(1) Lookups instead of O(N)
-  const getCardCategory = (id) => cardsDataMap[id]?.category || "";
-  const getCardName = (id) => cardsDataMap[id]?.name || id;
-  const getCardImage = (id) => cardsDataMap[id]?.image || "";
+
 
   // Memoize heavy calculation to avoid lag on re-renders
   const matches = useMemo(() => {
