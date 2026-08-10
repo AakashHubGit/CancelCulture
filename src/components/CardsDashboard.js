@@ -22,6 +22,7 @@ export default function CardsDashboard({ clanMembers = [] }) {
   const [tradeDepth, setTradeDepth] = useState(4);
   const [expandedChain, setExpandedChain] = useState(null);
   const [isLoadingTrades, setIsLoadingTrades] = useState(false);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
   /*
    * ---------------------------------------------------------
@@ -71,6 +72,24 @@ export default function CardsDashboard({ clanMembers = [] }) {
         duplicates: [],
       }
     );
+  };
+
+  const timeAgo = (dateString) => {
+    if (!dateString) return "Never";
+    const seconds = Math.floor((new Date() - new Date(dateString)) / 1000);
+    
+    let interval = seconds / 31536000;
+    if (interval > 1) return Math.floor(interval) + "y ago";
+    interval = seconds / 2592000;
+    if (interval > 1) return Math.floor(interval) + "mo ago";
+    interval = seconds / 86400;
+    if (interval > 1) return Math.floor(interval) + "d ago";
+    interval = seconds / 3600;
+    if (interval > 1) return Math.floor(interval) + "h ago";
+    interval = seconds / 60;
+    if (interval > 1) return Math.floor(interval) + "m ago";
+    if (seconds < 0) return "Just now"; // handles slight client-server clock drifts
+    return "Just now";
   };
 
   /*
@@ -428,7 +447,7 @@ export default function CardsDashboard({ clanMembers = [] }) {
 
   return (
     <div className="animate-stagger">
-      <div className="glass-panel text-center" style={{ marginBottom: "2rem" }}>
+      <div className="glass-panel text-center" style={{ marginBottom: "2rem", position: "relative", zIndex: 100 }}>
         <h1
           className="title-glow"
           style={{
@@ -446,33 +465,112 @@ export default function CardsDashboard({ clanMembers = [] }) {
           Select your profile to manage your inventory and find trades!
         </p>
 
-        <select
-          value={selectedPlayer}
-          onChange={(e) => setSelectedPlayer(e.target.value)}
-          style={{
-            padding: "1rem 2rem",
-            borderRadius: "100px",
-            background: "rgba(255,255,255,0.05)",
-            color: "white",
-            border: "1px solid var(--border-glass)",
-            fontSize: "1.2rem",
-            fontWeight: "600",
-            width: "100%",
-            maxWidth: "500px",
-            outline: "none",
-            boxShadow: "inset 0 2px 10px rgba(0,0,0,0.5)",
-            cursor: "pointer",
-          }}
-        >
-          <option value="" style={{ color: "#000" }}>
-            -- Select Your Player --
-          </option>
-          {clanMembers.map((m) => (
-            <option key={m.tag} value={m.tag} style={{ color: "#000" }}>
-              {m.name} ({m.tag})
-            </option>
-          ))}
-        </select>
+        <div style={{ position: 'relative', width: '100%', maxWidth: '500px', margin: '0 auto', zIndex: 50 }}>
+          <div 
+            onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+            style={{
+              padding: "1rem 2rem",
+              borderRadius: "100px",
+              background: "rgba(255,255,255,0.05)",
+              color: "white",
+              border: "1px solid var(--border-glass)",
+              fontSize: "1.2rem",
+              fontWeight: "600",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              cursor: "pointer",
+              boxShadow: "inset 0 2px 10px rgba(0,0,0,0.5)",
+            }}
+          >
+            {selectedPlayer ? (
+              <span>{clanMembers.find((m) => m.tag === selectedPlayer)?.name || selectedPlayer}</span>
+            ) : (
+              <span style={{ color: "var(--text-muted)" }}>-- Select Your Player --</span>
+            )}
+            <span style={{ fontSize: '0.8rem', transform: isDropdownOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▼</span>
+          </div>
+
+          {isDropdownOpen && (
+            <div 
+              className="glass-panel animate-stagger"
+              style={{
+                position: 'absolute',
+                top: '110%',
+                left: 0,
+                right: 0,
+                maxHeight: '350px',
+                overflowY: 'auto',
+                zIndex: 1000,
+                padding: '0.5rem',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.5rem',
+                border: '1px solid var(--border-glass)',
+                boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.37)'
+              }}
+            >
+              {clanMembers.map((m) => {
+                const dbEntry = tradesDb[m.tag];
+                const lastUpdated = dbEntry?.lastUpdated;
+                
+                let timeColor = 'var(--text-muted)';
+                if (lastUpdated) {
+                   const hours = Math.floor((new Date() - new Date(lastUpdated)) / 3600000);
+                   if (hours < 24) timeColor = 'var(--coc-elixir)'; // Fresh
+                   else if (hours < 72) timeColor = 'var(--coc-gold)'; // Medium
+                   else timeColor = '#ff4444'; // Stale
+                }
+
+                return (
+                  <div 
+                    key={m.tag}
+                    onClick={() => {
+                      setSelectedPlayer(m.tag);
+                      setIsDropdownOpen(false);
+                    }}
+                    style={{
+                      padding: '1rem',
+                      borderRadius: '12px',
+                      background: selectedPlayer === m.tag ? 'rgba(255,193,7,0.1)' : 'rgba(0,0,0,0.4)',
+                      border: selectedPlayer === m.tag ? '1px solid var(--coc-gold)' : '1px solid transparent',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (selectedPlayer !== m.tag) e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
+                    }}
+                    onMouseLeave={(e) => {
+                      if (selectedPlayer !== m.tag) e.currentTarget.style.background = 'rgba(0,0,0,0.4)';
+                    }}
+                  >
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                      <span style={{ fontWeight: 'bold', fontSize: '1.1rem', color: selectedPlayer === m.tag ? 'var(--coc-gold)' : 'white' }}>{m.name}</span>
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{m.tag}</span>
+                    </div>
+                    
+                    {lastUpdated ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(0,0,0,0.5)', padding: '0.4rem 0.8rem', borderRadius: '20px', border: `1px solid ${timeColor}` }}>
+                        <span style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: timeColor, fontWeight: 'bold' }}>
+                          🕒 {timeAgo(lastUpdated)}
+                        </span>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(0,0,0,0.5)', padding: '0.4rem 0.8rem', borderRadius: '20px', border: '1px solid var(--text-muted)' }}>
+                        <span style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 'bold' }}>
+                          No Data
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
       {selectedPlayer && (
@@ -548,6 +646,43 @@ export default function CardsDashboard({ clanMembers = [] }) {
                     {isSaving ? "Saving..." : "Save Collection"}
                   </button>
                 </div>
+              </div>
+
+              {/* BUCKETS / DROP-ZONES */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
+                
+                {/* NEED BUCKET */}
+                <div className="glass-panel" style={{ padding: '1.5rem', borderTop: '4px solid var(--coc-elixir)' }}>
+                  <h3 style={{ fontSize: '1.2rem', marginBottom: '1rem', color: 'white' }}>Cards I Need ({myNeeds.length})</h3>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', minHeight: '45px' }}>
+                    {myNeeds.length === 0 ? (
+                      <span className="text-muted" style={{ fontSize: '0.9rem' }}>Select cards from the roster below...</span>
+                    ) : (
+                      myNeeds.map(id => (
+                        <div key={id} onClick={() => toggleNeed(id)} style={{ width: '45px', height: '45px', borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--coc-elixir)', cursor: 'pointer', transition: 'transform 0.2s' }} className="hover-scale" title={`Remove ${getCardName(id)}`}>
+                          <img src={`/troops/${getCardImage(id)}`} alt={getCardName(id)} style={{width:'100%', height:'100%', objectFit:'cover'}} onError={(e) => { e.target.style.display = "none"; }} />
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* GIVE BUCKET */}
+                <div className="glass-panel" style={{ padding: '1.5rem', borderTop: '4px solid var(--coc-builder)' }}>
+                  <h3 style={{ fontSize: '1.2rem', marginBottom: '1rem', color: 'white' }}>Cards I Can Give ({myDuplicates.length})</h3>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', minHeight: '45px' }}>
+                    {myDuplicates.length === 0 ? (
+                      <span className="text-muted" style={{ fontSize: '0.9rem' }}>Select cards from the roster below...</span>
+                    ) : (
+                      myDuplicates.map(id => (
+                        <div key={id} onClick={() => toggleDuplicate(id)} style={{ width: '45px', height: '45px', borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--coc-builder)', cursor: 'pointer', transition: 'transform 0.2s' }} className="hover-scale" title={`Remove ${getCardName(id)}`}>
+                          <img src={`/troops/${getCardImage(id)}`} alt={getCardName(id)} style={{width:'100%', height:'100%', objectFit:'cover'}} onError={(e) => { e.target.style.display = "none"; }} />
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
               </div>
 
               <div className="grid grid-cols-auto-fit gap-4">
@@ -1382,6 +1517,22 @@ export default function CardsDashboard({ clanMembers = [] }) {
                                   </div>
                                 </div>
                               </div>
+                              
+                              {/* EXECUTION PLAN */}
+                              <details style={{ marginTop: '0.5rem', padding: '1rem', background: 'rgba(0,0,0,0.4)', borderRadius: '12px', border: '1px dashed var(--coc-gold)', cursor: 'pointer' }}>
+                                <summary style={{ color: 'var(--coc-gold)', fontSize: '1rem', fontWeight: 'bold', outline: 'none' }}>
+                                  🎮 Show Execution Plan (How to Trade in-game)
+                                </summary>
+                                <div style={{ paddingTop: '1rem', borderTop: '1px solid rgba(255,193,7,0.2)', marginTop: '0.5rem' }}>
+                                  <ol style={{ paddingLeft: '1.2rem', margin: 0, color: 'var(--text-primary)', display: 'flex', flexDirection: 'column', gap: '0.8rem', fontSize: '0.9rem' }}>
+                                    <li><strong>Step 1:</strong> You post a trade in clan chat offering <strong className="text-dark-elixir">{getCardName(multiTrade.me.gives)}</strong> and requesting <strong className="text-builder">{getCardName(multiTrade.playerB.gives)}</strong> (Bridge Card).</li>
+                                    <li><strong>Step 2:</strong> <strong>{multiTrade.playerB.name}</strong> accepts your trade. <span className="text-muted">(You temporarily receive the bridge card)</span>.</li>
+                                    <li><strong>Step 3:</strong> You post a second trade offering the <strong className="text-builder">{getCardName(multiTrade.playerB.gives)}</strong> and requesting <strong className="text-elixir">{getCardName(multiTrade.me.receives)}</strong>.</li>
+                                    <li><strong>Step 4:</strong> <strong>{multiTrade.playerC.name}</strong> accepts your trade. Everyone gets exactly what they need!</li>
+                                  </ol>
+                                </div>
+                              </details>
+                              
                             </div>
                           </div>
                         ))}
