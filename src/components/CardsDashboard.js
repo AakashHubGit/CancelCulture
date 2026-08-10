@@ -344,8 +344,6 @@ export default function CardsDashboard({ clanMembers = [] }) {
         directMatches.push({
           playerTag: otherTag,
           playerName: otherData.name || getPlayerName(otherTag),
-          iCanGive,
-          theyCanGive,
           categoryMatches,
           isPerfect: true,
         });
